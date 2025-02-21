@@ -15,9 +15,10 @@ app.use(cors());
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).then(() => console.log('MongoDB Connected')).catch(err => console.log(err));
+  //useNewUrlParser: true,
+  //useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 15000, // Increase timeout to 10 seconds
+}).then(() => console.log('✅ Connected to MongoDB Cloud Instance!')).catch(err => console.error('❌ MongoDB Connection Error:', err));
 
 // Student Schema
 const studentSchema = new mongoose.Schema({

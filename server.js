@@ -7,21 +7,38 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
+const logDownloadRoutes = require('./routes/logDownload');
+const { Parser } = require('json2csv');
 
 dotenv.config();
 const app = express();
 app.use(express.json());
+app.use(logDownloadRoutes);
 //app.use(cors());
 app.use(cors({
-  origin: 'https://student-management-frontend-n2vzs1u0c-saikat-guhas-projects.vercel.app', // Allow frontend origin
+  origin: "https://student-management-frontend-flax.vercel.app", // Allow frontend origin
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   credentials: true,
   allowedHeaders: 'Content-Type,Authorization'
 }));
+//app.options("*", cors());
+// ✅ Explicitly handle preflight requests (important for POST requests)
+app.options("*", (req, res) => {
+  res.header("Access-Control-Allow-Origin", " https://student-management-frontend-flax.vercel.app");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.sendStatus(200);
+});
+
+// ✅ Make sure Express JSON middleware is before routes
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+console.log("🔹 Loaded JWT_SECRET:", process.env.JWT_SECRET); // Debugging line
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
-  //useNewUrlParser: true
-  //useUnifiedTopology: true,
+ useNewUrlParser: true,
+  useUnifiedTopology: true,
   serverSelectionTimeoutMS: 15000, // Increase timeout to 10 seconds
 }).then(() => console.log('✅ Connected to MongoDB Cloud Instance!')).catch(err => console.error('❌ MongoDB Connection Error:', err));
 
@@ -103,7 +120,7 @@ const authorize = (roles) => (req, res, next) => {
 app.post('/create-admin', async (req, res) => {
   const { name, email, password, phone } = req.body;
 
-  try {console.log('📌 Received /create-admin request:', req.body);
+  try {
     const existingAdmin = await Student.findOne({ email, role: 'admin' });
     if (existingAdmin) return res.status(400).json({ error: 'Admin user already exists' });
 
@@ -125,16 +142,18 @@ app.post('/create-admin', async (req, res) => {
     res.json({ message: 'Admin user created successfully', adminId: generatedAdminId });
   } catch (error) {
     console.error('Create admin error:', error);
-    res.status(500).json({ error: 'Internal Server Error',details: error.message });
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
 // Login Endpoint
-app.post('/login', async (req, res) => {
-  const { identifier, password } = req.body;
-
-  try {
+app.post('/login', async (req, res) => {console.log("🔹 Login API hit")
+try {
+ console.log("🔹 Login API hit");
+const { identifier, password } = req.body;
+console.log("🔹 Received:", { identifier, password });
     const user = await Student.findOne({ $or: [{ email: identifier }, { phone: identifier }] });
+console.log("🔹 User found:", user);
     if (!user) return res.status(400).json({ error: 'User not found' });
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -323,10 +342,6 @@ app.post('/enroll', authenticateToken, authorize(['admin']), async (req, res) =>
 
       await Installment.insertMany(installmentRecords);
     }
-
-    
-    
-
    // const whatsappMessage = {
      // messaging_product: 'whatsapp',
       //to: phone,
@@ -346,7 +361,7 @@ app.post('/enroll', authenticateToken, authorize(['admin']), async (req, res) =>
     console.error('Enrollment error:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
-}); 
+});
 
 // Exportable Reports Endpoint
 app.get('/export-data/:studentId', authenticateToken, authorize(['admin']), async (req, res) => {
@@ -371,22 +386,54 @@ app.get('/export-data/:studentId', authenticateToken, authorize(['admin']), asyn
 });
 
 // Admin-Dashboard Statistics
-app.get('/admin-dashboard', authenticateToken, authorize(['admin']), async (req, res) => {
-  try {
-    const totalStudents = await Student.countDocuments({ role: 'student' });
-    const totalPayments = await Payment.aggregate([{ $group: { _id: null, total: { $sum: '$PaidAmount' } } }]);
-    const totalPendingInstallments = await Installment.countDocuments({ status: 'Pending' });
+// const { Parser } = require('json2csv');
 
-    res.json({
-      totalStudents,
-      totalPayments: totalPayments[0]?.total || 0,
-      totalPendingInstallments,
+app.get('/reports/invoices', authenticateToken, authorize(['admin']), async (req, res) => {
+  try {
+    const { month } = req.query;
+    if (!month) {
+      return res.status(400).json({ error: 'Month parameter is required in YYYY-MM format' });
+    }
+    
+    // Determine the start and end dates for the provided month
+    const startDate = new Date(`${month}-01`);
+    const endDate = new Date(startDate);
+    endDate.setMonth(endDate.getMonth() + 1);
+    
+    // Retrieve all payments within the specified month
+    const payments = await Payment.find({
+      paymentDate: { $gte: startDate, $lt: endDate }
     });
+    
+    const reportData = [];
+    for (const payment of payments) {
+      const student = await Student.findOne({ studentId: payment.studentId });
+      reportData.push({
+        invoiceNumber: payment.paymentId,
+        date: payment.paymentDate.toISOString().split('T')[0],
+        studentName: student ? student.name : 'Unknown',
+        payment: payment.PaidAmount,
+        gstAmount: payment.TotalGSTAmount,
+        CGST: payment.CGST,
+        SGST: payment.SGST,
+      });
+    }
+    
+    // Convert the report data to CSV format
+    const fields = ['invoiceNumber', 'date', 'studentName', 'payment', 'gstAmount', 'CGST', 'SGST'];
+    const json2csvParser = new Parser({ fields });
+    const csv = json2csvParser.parse(reportData);
+    
+    // Set headers to prompt file download
+    res.header('Content-Type', 'text/csv');
+    res.attachment(`invoice_report_${month}.csv`);
+    return res.send(csv);
   } catch (error) {
-    console.error('Admin-Dashboard error:', error);
+    console.error('Invoice report error:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
 
 //Student-Dashboard
 app.get('/student-dashboard', authenticateToken, authorize(['student']), async (req, res) => {
@@ -396,7 +443,6 @@ app.get('/student-dashboard', authenticateToken, authorize(['student']), async (
 
     // Fetch all payments made by the student
     const payments = await Payment.find({ studentId: student.studentId });
-    
     // Ensure each payment has a description
     const paymentsWithDescriptions = payments.map(payment => ({
       PaidAmount: payment.PaidAmount,
@@ -420,7 +466,7 @@ app.get('/student-dashboard', authenticateToken, authorize(['student']), async (
       initialPayment,
       feesPaid: totalPaymentsMade,
       dueAmount,
-      joinedDate: student.enrollmentDate|| new Date(), 
+      joinedDate: student.enrollmentDate|| new Date(),
       payments: paymentsWithDescriptions,
       installments: await Installment.find({ studentId: student.studentId }),
       batchNo: student.batchNo,
@@ -450,6 +496,82 @@ app.get('/notifications', authenticateToken, authorize(['admin', 'student']), as
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+//Pending Payments
+app.get('/reports/pending-payments', authenticateToken, authorize(['admin']), async (req, res) => {
+  try {
+    const { batch } = req.query;
+    if (!batch) {
+      return res.status(400).json({ error: 'Batch parameter is required' });
+    }
+    
+    // Find students in the given batch with a pending due amount
+    const students = await Student.find({ batchNo: batch, dueAmount: { $gt: 0 } });
+    
+    const reportData = [];
+    for (const student of students) {
+      const payments = await Payment.find({ studentId: student.studentId }).sort({ paymentDate: -1 });
+      const installments = await Installment.find({ studentId: student.studentId }).sort({ dueDate: 1 });
+      reportData.push({
+        studentName: student.name,
+        remainingFee: student.dueAmount,
+        payments,       // Detailed payment history
+        installments,   // Detailed installment schedule
+      });
+    }
+    
+    res.json({ report: reportData });
+  } catch (error) {
+    console.error('Pending payments report error:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+//course-enrollment
+app.get('/reports/course-enrollment', authenticateToken, authorize(['admin']), async (req, res) => {
+  try {
+    const courses = await Student.aggregate([
+      { $match: { role: 'student' } },
+      { $group: { _id: "$course", count: { $sum: 1 } } }
+    ]);
+    // Transform aggregation result into an object mapping course names to counts
+    const courseCounts = {};
+    courses.forEach(course => {
+      courseCounts[course._id] = course.count;
+    });
+    res.json({ courses: courseCounts });
+  } catch (error) {
+    console.error('Error fetching course enrollment report:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+//monthly-payments
+app.get('/reports/monthly-payments', authenticateToken, authorize(['admin']), async (req, res) => {
+  try {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    const payments = await Payment.aggregate([
+      { 
+        $match: { 
+          paymentDate: { $gte: startOfMonth, $lt: startOfNextMonth } 
+        } 
+      },
+      { 
+        $group: { 
+          _id: null, 
+          total: { $sum: "$PaidAmount" } 
+        } 
+      }
+    ]);
+
+    const totalPayments = payments.length > 0 ? payments[0].total : 0;
+    res.json({ totalPayments });
+  } catch (error) {
+    console.error('Error fetching monthly payments report:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 // Invoice Printing
 app.get('/invoice/:phone', authenticateToken, authorize(['admin']), async (req, res) => {
   try {
@@ -522,4 +644,4 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT,'0.0.0.0', () => console.log(`Server running on port ${PORT}`));

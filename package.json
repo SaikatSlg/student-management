@@ -1,8 +1,11 @@
 {
+  "homepage": ".",
   "name": "student-management",
   "version": "1.0.0",
   "main": "server.js",
+  "private": true,
   "scripts": {
+    "build": "GENERATE_SOURCEMAP=false react-scripts build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },

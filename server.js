@@ -11,11 +11,16 @@ const { v4: uuidv4 } = require('uuid');
 dotenv.config();
 const app = express();
 app.use(express.json());
-app.use(cors());
-
+//app.use(cors());
+app.use(cors({
+  origin: 'https://student-management-frontend-n2vzs1u0c-saikat-guhas-projects.vercel.app', // Allow frontend origin
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true,
+  allowedHeaders: 'Content-Type,Authorization'
+}));
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
-  //useNewUrlParser: true,
+  //useNewUrlParser: true
   //useUnifiedTopology: true,
   serverSelectionTimeoutMS: 15000, // Increase timeout to 10 seconds
 }).then(() => console.log('✅ Connected to MongoDB Cloud Instance!')).catch(err => console.error('❌ MongoDB Connection Error:', err));
@@ -98,7 +103,7 @@ const authorize = (roles) => (req, res, next) => {
 app.post('/create-admin', async (req, res) => {
   const { name, email, password, phone } = req.body;
 
-  try {
+  try {console.log('📌 Received /create-admin request:', req.body);
     const existingAdmin = await Student.findOne({ email, role: 'admin' });
     if (existingAdmin) return res.status(400).json({ error: 'Admin user already exists' });
 
@@ -120,7 +125,7 @@ app.post('/create-admin', async (req, res) => {
     res.json({ message: 'Admin user created successfully', adminId: generatedAdminId });
   } catch (error) {
     console.error('Create admin error:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Internal Server Error',details: error.message });
   }
 });
 

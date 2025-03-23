@@ -1,12 +1,20 @@
 const express = require('express');
 const crypto = require('crypto');
-const sgMail = require('@sendgrid/mail');
+const nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
 dotenv.config();
 const router = express.Router();
 const Student = require('../models/student');
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+const transporter = nodemailer.createTransport ({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASS,
+  }
+});
+
+//sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 router.post('/forgot-password', async (req, res) => {
   try {
@@ -45,7 +53,7 @@ router.post('/forgot-password', async (req, res) => {
 
     const msg = {
       to: email,
-      from: process.env.SENDGRID_SENDER_EMAIL,
+      from: process.env.GMAIL_USER,
       subject: 'Password Reset Instructions',
       text: `We received a request to reset your password. Please use the following link to reset your password: ${resetUrl}. If you did not request this, please ignore this email.`,
       html: `<p>We received a request to reset your password.</p>
@@ -53,7 +61,7 @@ router.post('/forgot-password', async (req, res) => {
              <p>If you did not request this, please ignore this email.</p>`,
     };
 
-    await sgMail.send(msg);
+    await transporter.send(msg);
     res.status(200).json({ message: 'If an account with that email exists, password reset instructions have been sent.' });
   } catch (error) {
     console.error('Error in forgot-password route:', error);

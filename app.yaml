@@ -2,7 +2,7 @@ runtime: nodejs20
 
 env_variables:
   MONGO_URI: "mongodb://34.57.98.193:27017/student_management"
-  
+  JWT_SECRET: "468cb94d3592b1cf3f4499672edcfac9554e2500de651753d24e5bcb70c1ee81"
 
 handlers:
   - url: /.*
